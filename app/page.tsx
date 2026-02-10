@@ -1,95 +1,116 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toPng } from 'html-to-image';
 import { VERBS } from '@/lib/verbs';
-import { FlashcardItem, PronounKey, TenseKey } from '@/lib/types';
-import { buildRoundCards, formatTime, pickRoundVerbs, pronounLabels, tenseDetails } from '@/lib/game';
+import { FlashcardItem, PronounKey, PRONOUN_KEYS, PRONOUN_LABELS } from '@/lib/types';
+import {
+  buildRoundCards,
+  createEmptyStats,
+  formatTime,
+  getFocusList,
+  pickRoundVerbs,
+  recordAnswer,
+  RoundStats,
+} from '@/lib/game';
 
 type Stage = 'setup' | 'round' | 'results';
-type TenseMode = 'mixed' | TenseKey;
-
-interface Stat { correct: number; total: number }
 
 export default function Home() {
+  // ── Session state ──────────────────────────────────────────
   const [stage, setStage] = useState<Stage>('setup');
   const [userName, setUserName] = useState('');
   const [includeVosotros, setIncludeVosotros] = useState(true);
-  const [tenseMode, setTenseMode] = useState<TenseMode>('mixed');
   const [round, setRound] = useState(1);
+
+  // ── Round state ────────────────────────────────────────────
   const [cards, setCards] = useState<FlashcardItem[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [flipClass, setFlipClass] = useState('');
   const [startedAt, setStartedAt] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [stats, setStats] = useState<RoundStats>(createEmptyStats());
 
-  const [correctCount, setCorrectCount] = useState(0);
-  const [wrongCount, setWrongCount] = useState(0);
-  const [tenseStats, setTenseStats] = useState<Record<TenseKey, Stat>>({ present: { correct: 0, total: 0 }, preterite: { correct: 0, total: 0 }, imperfect: { correct: 0, total: 0 } });
-  const [pronounStats, setPronounStats] = useState<Record<PronounKey, Stat>>({ yo: { correct: 0, total: 0 }, tu: { correct: 0, total: 0 }, el: { correct: 0, total: 0 }, ella: { correct: 0, total: 0 }, usted: { correct: 0, total: 0 }, nosotros: { correct: 0, total: 0 }, vosotros: { correct: 0, total: 0 }, ustedes: { correct: 0, total: 0 } });
-  const [tripletStats, setTripletStats] = useState<Record<string, { wrong: number; seen: number }>>({});
+  // ── UI toggles ─────────────────────────────────────────────
   const [showCheat, setShowCheat] = useState(false);
-  const [cheatTense, setCheatTense] = useState<TenseKey>('present');
+
   const shareRef = useRef<HTMLDivElement>(null);
+  const currentCard = cards[cardIndex] ?? null;
 
-  const currentCard = cards[cardIndex];
-
+  // ── Timer ──────────────────────────────────────────────────
   useEffect(() => {
     if (stage !== 'round') return;
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 250);
     return () => clearInterval(id);
   }, [stage, startedAt]);
 
+  // ── Actions ────────────────────────────────────────────────
+  const startRound = useCallback(() => {
+    const roundVerbs = pickRoundVerbs(VERBS, round, 50);
+    const newCards = buildRoundCards(roundVerbs, includeVosotros);
+    setCards(newCards);
+    setCardIndex(0);
+    setRevealed(false);
+    setFlipClass('');
+    setStartedAt(Date.now());
+    setElapsed(0);
+    setStats(createEmptyStats());
+    setStage('round');
+  }, [round, includeVosotros]);
+
+  const handleReveal = useCallback(() => {
+    if (revealed) return;
+    setFlipClass('flipped');
+    setTimeout(() => setRevealed(true), 250);
+  }, [revealed]);
+
+  const markAnswer = useCallback(
+    (isCorrect: boolean) => {
+      if (!currentCard || !revealed) return;
+      setStats((prev) =>
+        recordAnswer(prev, currentCard.verb.infinitive, currentCard.pronoun, isCorrect),
+      );
+
+      if (cardIndex >= cards.length - 1) {
+        setStage('results');
+        return;
+      }
+      setCardIndex((i) => i + 1);
+      setRevealed(false);
+      setFlipClass('');
+    },
+    [currentCard, revealed, cardIndex, cards.length],
+  );
+
+  // ── Keyboard shortcuts ─────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (stage !== 'round') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault();
-        if (!revealed) setRevealed(true);
+        if (!revealed) handleReveal();
       }
       if (revealed && e.key.toLowerCase() === 'r') markAnswer(true);
       if (revealed && e.key.toLowerCase() === 'w') markAnswer(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [stage, revealed, handleReveal, markAnswer]);
 
-  const startRound = () => {
-    const roundVerbs = pickRoundVerbs(VERBS, round, 50);
-    setCards(buildRoundCards(roundVerbs, includeVosotros, tenseMode));
-    setCardIndex(0);
-    setRevealed(false);
-    setStartedAt(Date.now());
-    setElapsed(0);
-    setCorrectCount(0);
-    setWrongCount(0);
-    setTripletStats({});
-    setTenseStats({ present: { correct: 0, total: 0 }, preterite: { correct: 0, total: 0 }, imperfect: { correct: 0, total: 0 } });
-    setPronounStats({ yo: { correct: 0, total: 0 }, tu: { correct: 0, total: 0 }, el: { correct: 0, total: 0 }, ella: { correct: 0, total: 0 }, usted: { correct: 0, total: 0 }, nosotros: { correct: 0, total: 0 }, vosotros: { correct: 0, total: 0 }, ustedes: { correct: 0, total: 0 } });
-    setStage('round');
-  };
+  // ── Derived data ───────────────────────────────────────────
+  const accuracy = cards.length
+    ? Math.round((stats.correctCount / cards.length) * 100)
+    : 0;
 
-  const markAnswer = (isCorrect: boolean) => {
-    if (!currentCard) return;
-    setTenseStats((prev) => ({ ...prev, [currentCard.tense]: { total: prev[currentCard.tense].total + 1, correct: prev[currentCard.tense].correct + (isCorrect ? 1 : 0) } }));
-    setPronounStats((prev) => ({ ...prev, [currentCard.pronoun]: { total: prev[currentCard.pronoun].total + 1, correct: prev[currentCard.pronoun].correct + (isCorrect ? 1 : 0) } }));
-    const key = `${currentCard.verb.infinitive}|${currentCard.pronoun}|${currentCard.tense}`;
-    setTripletStats((prev) => ({ ...prev, [key]: { seen: (prev[key]?.seen ?? 0) + 1, wrong: (prev[key]?.wrong ?? 0) + (isCorrect ? 0 : 1) } }));
-    if (isCorrect) setCorrectCount((c) => c + 1); else setWrongCount((c) => c + 1);
+  const focusList = useMemo(() => getFocusList(stats.pairStats), [stats.pairStats]);
 
-    if (cardIndex >= cards.length - 1) {
-      setStage('results');
-      return;
-    }
-    setCardIndex((i) => i + 1);
-    setRevealed(false);
-  };
-
-  const focusList = useMemo(() => Object.entries(tripletStats)
-    .sort((a, b) => b[1].wrong - a[1].wrong || b[1].seen - a[1].seen)
-    .slice(0, 10), [tripletStats]);
-
-  const accuracy = cards.length ? Math.round((correctCount / cards.length) * 100) : 0;
+  const filteredPronounKeys = includeVosotros
+    ? PRONOUN_KEYS
+    : PRONOUN_KEYS.filter((p) => p !== 'vosotros');
 
   const downloadCard = async () => {
     if (!shareRef.current) return;
@@ -100,135 +121,385 @@ export default function Home() {
     link.click();
   };
 
-  const pronounOrder = (includeVosotros ? ['yo', 'tu', 'el', 'ella', 'usted', 'nosotros', 'vosotros', 'ustedes'] : ['yo', 'tu', 'el', 'ella', 'usted', 'nosotros', 'ustedes']) as PronounKey[];
+  // ── Render ─────────────────────────────────────────────────
+  return (
+    <main className="mx-auto min-h-dvh max-w-lg px-4 pb-12 pt-6 sm:pt-10">
+      {/* Header */}
+      <header className="mb-8 text-center">
+        <h1 className="text-4xl font-extrabold tracking-tight text-brand-700 sm:text-5xl">
+          Habla Cadabra
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">Spanish Verb Conjugation Trainer</p>
+      </header>
 
-  return <main className="mx-auto min-h-screen max-w-4xl p-4 sm:p-8">
-    <header className="mb-6 text-center">
-      <h1 className="text-4xl font-extrabold text-indigo-700">Habla Cadabra</h1>
-      <p className="text-slate-600">Spanish Verb Conjugation Trainer</p>
-    </header>
+      {/* ─── SETUP SCREEN ─────────────────────────────────── */}
+      {stage === 'setup' && (
+        <section className="space-y-5">
+          <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
+            <label className="block text-sm font-medium text-slate-700">
+              Your name
+              <input
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="Enter your name"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base transition focus:border-brand-400 focus:bg-white focus:ring-2 focus:ring-brand-200"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && userName.trim()) startRound();
+                }}
+              />
+            </label>
 
-    {stage === 'setup' && <section className="space-y-4 rounded-2xl bg-white p-6 shadow">
-      <label className="block text-sm font-medium">Your name
-        <input value={userName} onChange={(e) => setUserName(e.target.value)} className="mt-1 w-full rounded-lg border p-3" required />
-      </label>
-      <label className="flex items-center gap-2"><input type="checkbox" checked={includeVosotros} onChange={(e) => setIncludeVosotros(e.target.checked)} /> Include vosotros (Spain)</label>
-      <fieldset className="space-y-2">
-        <legend className="font-medium">Tense selection</legend>
-        {[
-          ['mixed', 'Mixed (Present + Preterite + Imperfect)'],
-          ['present', 'Present only'],
-          ['preterite', 'Preterite only'],
-          ['imperfect', 'Imperfect only'],
-        ].map(([value, label]) => (
-          <label key={value} className="flex items-center gap-2"><input type="radio" checked={tenseMode === value} onChange={() => setTenseMode(value as TenseMode)} /> {label}</label>
-        ))}
-      </fieldset>
-      <button onClick={startRound} disabled={!userName.trim()} className="w-full rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white disabled:opacity-50">Start Round {round}</button>
-      <button onClick={() => setShowCheat((s) => !s)} className="text-indigo-700 underline">{showCheat ? 'Hide' : 'Show'} Conjugation Cheat Sheet</button>
-      {showCheat && <CheatSheet includeVosotros={includeVosotros} tense={cheatTense} onChangeTense={setCheatTense} />}
-    </section>}
+            <label className="mt-4 flex cursor-pointer items-center gap-3 text-sm">
+              <span
+                role="switch"
+                aria-checked={includeVosotros}
+                tabIndex={0}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${includeVosotros ? 'bg-brand-600' : 'bg-slate-300'}`}
+                onClick={() => setIncludeVosotros((v) => !v)}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    setIncludeVosotros((v) => !v);
+                  }
+                }}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${includeVosotros ? 'translate-x-6' : 'translate-x-1'}`}
+                />
+              </span>
+              <span className="text-slate-700">Include <strong>vosotros</strong> (Spain)</span>
+            </label>
 
-    {stage === 'round' && currentCard && <section className="space-y-4">
-      <div className="flex justify-between text-sm text-slate-600"><span>Card {cardIndex + 1} / {cards.length}</span><span>{formatTime(elapsed)}</span></div>
-      <button aria-label="flashcard" onClick={() => !revealed && setRevealed(true)} className={`w-full rounded-2xl border-2 bg-white p-8 text-left shadow transition ${revealed ? 'border-emerald-500' : 'border-indigo-200 hover:border-indigo-400'}`}>
-        <p className="text-sm uppercase text-slate-500">Infinitive</p>
-        <p className="text-3xl font-bold">{currentCard.verb.infinitive}</p>
-        <p className="mb-4 text-slate-600">{currentCard.verb.englishMeaning}</p>
-        <p className="font-semibold">Conjugate for <span className="text-indigo-700">{pronounLabels[currentCard.pronoun]}</span></p>
-        {!revealed && tenseMode === 'mixed' && <p className="mt-2 text-xs text-slate-400">Tense hidden in mixed mode</p>}
-        {revealed && <div className="mt-6 space-y-2 border-t pt-4">
-          <p className="text-sm text-slate-500">Correct form</p>
-          <p className="text-4xl font-extrabold text-emerald-700">{currentCard.verb.conjugations[currentCard.tense][currentCard.pronoun]}</p>
-          <p className="text-sm text-slate-700">{tenseDetails[currentCard.tense].name}: {tenseDetails[currentCard.tense].meaning}</p>
-          <p className="text-sm">{currentCard.verb.sampleSentences[currentCard.tense][currentCard.pronoun].es}</p>
-          <p className="text-sm text-slate-600">{currentCard.verb.sampleSentences[currentCard.tense][currentCard.pronoun].en}</p>
-        </div>}
-      </button>
-      {revealed && <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => markAnswer(true)} className="rounded-xl bg-emerald-600 py-3 font-bold text-white">✅ Right (R)</button>
-        <button onClick={() => markAnswer(false)} className="rounded-xl bg-rose-600 py-3 font-bold text-white">❌ Wrong (W)</button>
-      </div>}
-    </section>}
+            <button
+              onClick={startRound}
+              disabled={!userName.trim()}
+              className="mt-6 w-full rounded-xl bg-brand-600 px-5 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-[0.98] disabled:opacity-40"
+            >
+              Start Round {round}
+            </button>
+          </div>
 
-    {stage === 'results' && <section className="space-y-5">
-      <div className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="text-2xl font-bold">Round {round} complete</h2>
-        <p className="text-slate-700">{correctCount} / {cards.length} correct ({accuracy}%) in {formatTime(elapsed)}</p>
-      </div>
+          {/* Cheat Sheet Toggle */}
+          <button
+            onClick={() => setShowCheat((s) => !s)}
+            className="mx-auto flex items-center gap-1.5 text-sm font-medium text-brand-600 transition hover:text-brand-800"
+          >
+            <span>{showCheat ? 'Hide' : 'Show'} Conjugation Cheat Sheet</span>
+            <svg
+              className={`h-4 w-4 transition-transform ${showCheat ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <StatsBlock title="By tense" items={(Object.keys(tenseStats) as TenseKey[]).map((k) => ({ label: tenseDetails[k].name, ...tenseStats[k] }))} />
-        <StatsBlock title="By pronoun" items={pronounOrder.map((k) => ({ label: pronounLabels[k], ...pronounStats[k] }))} />
-      </div>
+          {showCheat && <CheatSheet includeVosotros={includeVosotros} />}
+        </section>
+      )}
 
-      <div className="rounded-2xl bg-white p-6 shadow">
-        <h3 className="mb-2 font-bold">Focus list (top 10)</h3>
-        <ol className="list-decimal space-y-1 pl-5 text-sm">
-          {focusList.map(([key, value]) => {
-            const [verb, pronoun, tense] = key.split('|');
-            return <li key={key}>{verb} • {pronounLabels[pronoun as PronounKey]} • {tenseDetails[tense as TenseKey].name} — wrong {value.wrong}x</li>;
-          })}
-        </ol>
-      </div>
+      {/* ─── ROUND SCREEN ─────────────────────────────────── */}
+      {stage === 'round' && currentCard && (
+        <section className="space-y-4">
+          {/* Progress bar + timer */}
+          <div className="flex items-center justify-between text-sm text-slate-500">
+            <span className="font-medium">
+              Card {cardIndex + 1} / {cards.length}
+            </span>
+            <span className="font-mono tabular-nums">{formatTime(elapsed)}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-brand-500 transition-all duration-300"
+              style={{ width: `${((cardIndex + (revealed ? 1 : 0.5)) / cards.length) * 100}%` }}
+            />
+          </div>
 
-      <div ref={shareRef} className="rounded-2xl bg-gradient-to-br from-indigo-700 to-fuchsia-600 p-6 text-white shadow-lg">
-        <p className="text-xl font-bold">Habla Cadabra</p>
-        <p>{userName} • Round {round} complete</p>
-        <p className="mt-2 text-3xl font-extrabold">{correctCount}/{cards.length} ({accuracy}%)</p>
-        <p>Time: {formatTime(elapsed)}</p>
-        <p className="mt-2 text-sm">Present {pct(tenseStats.present)}% • Preterite {pct(tenseStats.preterite)}% • Imperfect {pct(tenseStats.imperfect)}%</p>
-      </div>
-      <button onClick={downloadCard} className="rounded-xl bg-indigo-600 px-4 py-2 font-bold text-white">Download as PNG</button>
+          {/* Flashcard */}
+          <div className="flip-container">
+            <div
+              className={`flip-card cursor-pointer ${flipClass}`}
+              onClick={() => !revealed && handleReveal()}
+              role="button"
+              tabIndex={0}
+              aria-label={revealed ? 'Answer revealed' : 'Click to reveal answer'}
+            >
+              {/* Front */}
+              <div className={`flip-face rounded-2xl bg-white p-6 shadow-md ring-1 ring-slate-100 sm:p-8 ${revealed ? 'hidden' : ''}`}>
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold uppercase text-brand-600">
+                    {currentCard.verb.type === 'ar' ? '-AR' : currentCard.verb.type === 'er' ? '-ER' : '-IR'}
+                  </span>
+                  <span className="text-xs text-slate-400">Present tense</span>
+                </div>
+                <p className="mt-3 text-3xl font-bold text-slate-900 sm:text-4xl">
+                  {currentCard.verb.infinitive}
+                </p>
+                <p className="mt-1 text-base text-slate-500">{currentCard.verb.englishMeaning}</p>
+                <div className="mt-6 rounded-xl bg-brand-50 p-4">
+                  <p className="text-sm font-medium text-slate-600">Conjugate for</p>
+                  <p className="mt-0.5 text-2xl font-bold text-brand-700">
+                    {PRONOUN_LABELS[currentCard.pronoun]}
+                  </p>
+                </div>
+                <p className="mt-4 text-center text-xs text-slate-400">
+                  Tap card or press Space to reveal
+                </p>
+              </div>
 
-      <div className="flex gap-3">
-        <button disabled={round >= 10} onClick={() => { setRound((r) => r + 1); setStage('setup'); }} className="rounded-xl bg-indigo-600 px-4 py-2 text-white disabled:opacity-50">Next Round</button>
-        <button onClick={() => { setRound(1); setStage('setup'); setUserName(''); }} className="rounded-xl border px-4 py-2">Restart session</button>
-      </div>
-    </section>}
-  </main>;
+              {/* Back */}
+              <div className={`flip-face flip-back rounded-2xl bg-white p-6 shadow-md ring-1 ring-emerald-200 sm:p-8 ${revealed ? '!relative !transform-none' : 'absolute inset-0'}`}>
+                {revealed && (
+                  <div className="animate-fade-up">
+                    <p className="text-sm font-medium text-slate-500">
+                      {currentCard.verb.infinitive} — {PRONOUN_LABELS[currentCard.pronoun]}
+                    </p>
+                    <p className="mt-2 text-4xl font-extrabold text-emerald-600 sm:text-5xl">
+                      {currentCard.verb.presentConjugation[currentCard.pronoun]}
+                    </p>
+                    <div className="mt-4 rounded-xl bg-slate-50 p-3">
+                      <p className="text-sm text-slate-700">
+                        {currentCard.verb.sampleSentence[currentCard.pronoun].es}
+                      </p>
+                      {currentCard.verb.sampleSentence[currentCard.pronoun].en && (
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {currentCard.verb.sampleSentence[currentCard.pronoun].en}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right / Wrong buttons */}
+          {revealed && (
+            <div className="animate-fade-up grid grid-cols-2 gap-3">
+              <button
+                onClick={() => markAnswer(true)}
+                className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.97]"
+              >
+                <span>Correct</span>
+                <kbd className="rounded bg-emerald-500/50 px-1.5 py-0.5 text-xs">R</kbd>
+              </button>
+              <button
+                onClick={() => markAnswer(false)}
+                className="flex items-center justify-center gap-2 rounded-xl bg-rose-600 py-3.5 text-base font-bold text-white shadow-sm transition hover:bg-rose-700 active:scale-[0.97]"
+              >
+                <span>Wrong</span>
+                <kbd className="rounded bg-rose-500/50 px-1.5 py-0.5 text-xs">W</kbd>
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ─── RESULTS SCREEN ───────────────────────────────── */}
+      {stage === 'results' && (
+        <section className="space-y-5">
+          {/* Score summary */}
+          <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
+            <h2 className="text-2xl font-bold text-slate-900">Round {round} Complete!</h2>
+            <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-xl bg-emerald-50 p-3">
+                <p className="text-2xl font-bold text-emerald-700">{stats.correctCount}</p>
+                <p className="text-xs text-emerald-600">Correct</p>
+              </div>
+              <div className="rounded-xl bg-brand-50 p-3">
+                <p className="text-2xl font-bold text-brand-700">{accuracy}%</p>
+                <p className="text-xs text-brand-600">Accuracy</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-2xl font-bold text-slate-700">{formatTime(elapsed)}</p>
+                <p className="text-xs text-slate-500">Time</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Pronoun breakdown */}
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+            <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
+              By Pronoun
+            </h3>
+            <div className="space-y-2">
+              {filteredPronounKeys.map((key) => {
+                const s = stats.pronounStats[key];
+                const pct = s.total ? Math.round((s.correct / s.total) * 100) : 0;
+                return (
+                  <div key={key} className="flex items-center gap-3 text-sm">
+                    <span className="w-28 shrink-0 font-medium text-slate-700">
+                      {PRONOUN_LABELS[key]}
+                    </span>
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-brand-400 transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="w-16 text-right tabular-nums text-slate-500">
+                      {s.correct}/{s.total}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Focus list */}
+          {focusList.length > 0 && (
+            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+              <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
+                Focus List (Top {Math.min(focusList.length, 10)})
+              </h3>
+              <ol className="list-inside list-decimal space-y-1.5 text-sm">
+                {focusList.map((item) => (
+                  <li key={`${item.verb}-${item.pronoun}`} className="text-slate-700">
+                    <span className="font-semibold">{item.verb}</span>
+                    {' — '}
+                    <span className="text-brand-600">
+                      {PRONOUN_LABELS[item.pronoun as PronounKey]}
+                    </span>
+                    <span className="ml-1 text-rose-500">(wrong {item.wrong}x)</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Shareable progress card */}
+          <div
+            ref={shareRef}
+            className="overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-fuchsia-600 p-6 text-white shadow-lg"
+          >
+            <p className="text-lg font-extrabold tracking-tight">Habla Cadabra</p>
+            <p className="mt-0.5 text-sm text-white/80">
+              {userName} &middot; Round {round} complete
+            </p>
+            <div className="mt-4 flex items-baseline gap-2">
+              <span className="text-4xl font-extrabold">
+                {stats.correctCount}/{cards.length}
+              </span>
+              <span className="text-lg font-bold text-white/80">({accuracy}%)</span>
+            </div>
+            <p className="mt-1 text-sm text-white/70">Time: {formatTime(elapsed)}</p>
+          </div>
+
+          <button
+            onClick={downloadCard}
+            className="w-full rounded-xl bg-brand-600 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 active:scale-[0.98]"
+          >
+            Download as PNG
+          </button>
+
+          {/* Next / Restart */}
+          <div className="flex gap-3">
+            {round < 10 && (
+              <button
+                onClick={() => {
+                  setRound((r) => r + 1);
+                  setStage('setup');
+                }}
+                className="flex-1 rounded-xl bg-brand-600 py-3 text-sm font-bold text-white transition hover:bg-brand-700"
+              >
+                Next Round
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setRound(1);
+                setStage('setup');
+                setUserName('');
+                setCards([]);
+                setStats(createEmptyStats());
+              }}
+              className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Restart Session
+            </button>
+          </div>
+        </section>
+      )}
+    </main>
+  );
 }
 
-function pct(stat: Stat): number { return stat.total ? Math.round((stat.correct / stat.total) * 100) : 0; }
+// ─── Cheat Sheet Component ───────────────────────────────────────────
 
-function StatsBlock({ title, items }: { title: string; items: Array<{ label: string; correct: number; total: number }> }) {
-  return <div className="rounded-2xl bg-white p-5 shadow">
-    <h3 className="mb-2 font-bold">{title}</h3>
-    <ul className="space-y-1 text-sm">{items.map((item) => <li key={item.label} className="flex justify-between"><span>{item.label}</span><span>{item.correct}/{item.total} ({pct(item)}%)</span></li>)}</ul>
-  </div>;
-}
-
-function CheatSheet({ includeVosotros, tense, onChangeTense }: { includeVosotros: boolean; tense: TenseKey; onChangeTense: (t: TenseKey) => void }) {
-  const rows = [
+function CheatSheet({ includeVosotros }: { includeVosotros: boolean }) {
+  const rows: Array<{ key: string; label: string }> = [
     { key: 'yo', label: 'yo' },
     { key: 'tu', label: 'tú' },
-    { key: 'el', label: 'él' },
-    { key: 'ella', label: 'ella' },
-    { key: 'usted', label: 'usted' },
+    { key: 'elEllaUsted', label: 'él/ella/usted' },
     { key: 'nosotros', label: 'nosotros' },
     ...(includeVosotros ? [{ key: 'vosotros', label: 'vosotros' }] : []),
     { key: 'ustedes', label: 'ustedes' },
   ];
 
-  const endings = {
-    present: { ar: ['o', 'as', 'a', 'a', 'a', 'amos', 'áis', 'an'], er: ['o', 'es', 'e', 'e', 'e', 'emos', 'éis', 'en'], ir: ['o', 'es', 'e', 'e', 'e', 'imos', 'ís', 'en'] },
-    preterite: { ar: ['é', 'aste', 'ó', 'ó', 'ó', 'amos', 'asteis', 'aron'], er: ['í', 'iste', 'ió', 'ió', 'ió', 'imos', 'isteis', 'ieron'], ir: ['í', 'iste', 'ió', 'ió', 'ió', 'imos', 'isteis', 'ieron'] },
-    imperfect: { ar: ['aba', 'abas', 'aba', 'aba', 'aba', 'ábamos', 'abais', 'aban'], er: ['ía', 'ías', 'ía', 'ía', 'ía', 'íamos', 'íais', 'ían'], ir: ['ía', 'ías', 'ía', 'ía', 'ía', 'íamos', 'íais', 'ían'] },
-  } as const;
+  // Endings for present tense (matching rows order with/without vosotros)
+  const arEndings = includeVosotros
+    ? ['-o', '-as', '-a', '-amos', '-áis', '-an']
+    : ['-o', '-as', '-a', '-amos', '-an'];
+  const erEndings = includeVosotros
+    ? ['-o', '-es', '-e', '-emos', '-éis', '-en']
+    : ['-o', '-es', '-e', '-emos', '-en'];
+  const irEndings = includeVosotros
+    ? ['-o', '-es', '-e', '-imos', '-ís', '-en']
+    : ['-o', '-es', '-e', '-imos', '-en'];
 
-  return <div className="rounded-xl border bg-slate-50 p-4">
-    <div className="mb-3 flex gap-2">{(['present', 'preterite', 'imperfect'] as TenseKey[]).map((t) => <button key={t} onClick={() => onChangeTense(t)} className={`rounded px-3 py-1 text-sm ${tense === t ? 'bg-indigo-600 text-white' : 'bg-white'}`}>{tenseDetails[t].name}</button>)}</div>
-    <table className="w-full text-sm">
-      <thead><tr><th className="text-left">Pronoun</th><th>-AR</th><th>-ER</th><th>-IR</th></tr></thead>
-      <tbody>{rows.map((r) => { const idx = ['yo','tu','el','ella','usted','nosotros','vosotros','ustedes'].indexOf(r.key); return <tr key={r.key}><td className="py-1">{r.label}</td><td>{endings[tense].ar[idx]}</td><td>{endings[tense].er[idx]}</td><td>{endings[tense].ir[idx]}</td></tr>; })}</tbody>
-    </table>
-    <div className="mt-3 rounded bg-white p-3 text-sm">
-      <p className="font-semibold">Stem & irregular hints</p>
-      <ul className="list-disc pl-5 text-slate-600">
-        <li>Watch for e→ie and o→ue stem changes in present tense.</li>
-        <li>Many preterite irregulars change stem entirely (tener→tuv-, decir→dij-).</li>
-        <li>Imperfect is mostly regular except ser, ir, ver.</li>
-      </ul>
+  return (
+    <div className="animate-fade-up rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">
+        Present Tense Endings
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-100">
+              <th className="pb-2 text-left font-medium text-slate-500">Pronoun</th>
+              <th className="pb-2 text-center font-medium text-brand-600">-AR</th>
+              <th className="pb-2 text-center font-medium text-brand-600">-ER</th>
+              <th className="pb-2 text-center font-medium text-brand-600">-IR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={row.key} className="border-b border-slate-50">
+                <td className="py-2 font-medium text-slate-700">{row.label}</td>
+                <td className="py-2 text-center text-slate-600">{arEndings[i]}</td>
+                <td className="py-2 text-center text-slate-600">{erEndings[i]}</td>
+                <td className="py-2 text-center text-slate-600">{irEndings[i]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Stem & irregular hints */}
+      <div className="mt-4 rounded-xl bg-slate-50 p-4">
+        <p className="text-sm font-semibold text-slate-700">Stem &amp; Irregular Hints</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">
+          <li>Most verbs: remove -ar/-er/-ir ending, add the corresponding ending above.</li>
+          <li>Some verbs are irregular (e.g., ser &rarr; soy, eres, es&hellip;)</li>
+          <li>
+            Some are stem-changing in the &ldquo;boot&rdquo; pattern (yo, t&uacute;,
+            &eacute;l/ella/usted, ustedes):
+            <br />
+            <strong>e&rarr;ie</strong> (pensar &rarr; pienso), <strong>o&rarr;ue</strong>{' '}
+            (contar &rarr; cuento), <strong>e&rarr;i</strong> (pedir &rarr; pido)
+          </li>
+          <li>
+            &ldquo;-go&rdquo; verbs have irregular yo form: tener &rarr; tengo, venir &rarr;
+            vengo, poner &rarr; pongo
+          </li>
+          <li>
+            &ldquo;-zco&rdquo; verbs: conocer &rarr; conozco, producir &rarr; produzco
+          </li>
+        </ul>
+      </div>
     </div>
-  </div>;
+  );
 }

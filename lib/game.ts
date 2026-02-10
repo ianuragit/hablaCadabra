@@ -1,103 +1,109 @@
-import { FlashcardItem, PronounKey, TenseKey, VerbEntry } from './types';
-
-export const pronounLabels: Record<PronounKey, string> = {
-  yo: 'yo',
-  tu: 'tú',
-  el: 'él',
-  ella: 'ella',
-  usted: 'usted',
-  nosotros: 'nosotros',
-  vosotros: 'vosotros',
-  ustedes: 'ustedes',
-};
-
-export const tenseDetails: Record<TenseKey, { name: string; meaning: string }> = {
-  present: { name: 'Present', meaning: 'current/general truth' },
-  preterite: { name: 'Preterite (Simple Past)', meaning: 'completed action in the past' },
-  imperfect: { name: 'Imperfect', meaning: 'ongoing/habitual past, background' },
-};
+import { FlashcardItem, PronounKey, PRONOUN_KEYS, VerbEntry } from './types';
 
 export function formatTime(seconds: number): string {
   const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const ss = Math.floor(seconds % 60).toString().padStart(2, '0');
+  const ss = (seconds % 60).toString().padStart(2, '0');
   return `${mm}:${ss}`;
 }
 
-export function getRoundRankFocus(round: number): { center: number; spread: number } {
-  const t = (round - 1) / 9;
-  return {
-    center: Math.round(120 + t * 320),
-    spread: Math.round(100 + t * 180),
-  };
-}
-
-function weightedSampleWithoutReplacement<T>(items: T[], weights: number[], count: number): T[] {
-  const pool = [...items];
-  const ws = [...weights];
-  const selected: T[] = [];
-  while (selected.length < count && pool.length > 0) {
-    const total = ws.reduce((a, b) => a + b, 0);
-    const r = Math.random() * total;
-    let acc = 0;
-    let idx = 0;
-    for (; idx < ws.length; idx++) {
-      acc += ws[idx];
-      if (r <= acc) break;
-    }
-    selected.push(pool[idx]);
-    pool.splice(idx, 1);
-    ws.splice(idx, 1);
-  }
-  return selected;
-}
-
+/**
+ * Pick verbs for a given round (1-indexed).
+ * Round 1 → ranks 1-50, Round 2 → ranks 51-100, etc.
+ */
 export function pickRoundVerbs(verbs: VerbEntry[], round: number, count = 50): VerbEntry[] {
-  const { center, spread } = getRoundRankFocus(round);
-  const weights = verbs.map((v) => {
-    const dist = Math.abs(v.frequencyRank - center);
-    const gaussian = Math.exp(-Math.pow(dist / spread, 2));
-    const commonBoost = 1 / Math.sqrt(v.frequencyRank + round * 10);
-    return gaussian * 0.7 + commonBoost * 0.3 + 0.0001;
-  });
-  return weightedSampleWithoutReplacement(verbs, weights, count);
+  const start = (round - 1) * count;
+  const end = start + count;
+  // Slice by frequency rank (verbs should already be sorted by frequencyRank)
+  const sorted = [...verbs].sort((a, b) => a.frequencyRank - b.frequencyRank);
+  return sorted.slice(start, end);
 }
 
+/**
+ * Build flashcard items for a round.
+ * Each verb gets one card with a random pronoun.
+ */
 export function buildRoundCards(
   selectedVerbs: VerbEntry[],
   includeVosotros: boolean,
-  tenseMode: 'mixed' | TenseKey,
 ): FlashcardItem[] {
-  const pronouns = (includeVosotros
-    ? ['yo', 'tu', 'el', 'ella', 'usted', 'nosotros', 'vosotros', 'ustedes']
-    : ['yo', 'tu', 'el', 'ella', 'usted', 'nosotros', 'ustedes']) as PronounKey[];
-  const tenses = tenseMode === 'mixed' ? (['present', 'preterite', 'imperfect'] as TenseKey[]) : [tenseMode];
-  const used = new Set<string>();
-  const cards: FlashcardItem[] = [];
+  const pronouns = includeVosotros
+    ? [...PRONOUN_KEYS]
+    : PRONOUN_KEYS.filter((p) => p !== 'vosotros');
 
-  selectedVerbs.forEach((verb) => {
-    let attempts = 0;
-    while (attempts < 40) {
-      const pronoun = pronouns[Math.floor(Math.random() * pronouns.length)];
-      const tense = tenses[Math.floor(Math.random() * tenses.length)];
-      const key = `${verb.infinitive}-${pronoun}-${tense}`;
-      if (!used.has(key)) {
-        used.add(key);
-        cards.push({ verb, pronoun, tense });
-        return;
-      }
-      attempts += 1;
-    }
-    for (const pronoun of pronouns) {
-      for (const tense of tenses) {
-        const key = `${verb.infinitive}-${pronoun}-${tense}`;
-        if (!used.has(key)) {
-          used.add(key);
-          cards.push({ verb, pronoun, tense });
-          return;
-        }
-      }
-    }
+  const cards: FlashcardItem[] = selectedVerbs.map((verb) => {
+    const pronoun = pronouns[Math.floor(Math.random() * pronouns.length)];
+    return { verb, pronoun };
   });
 
-  return cards.sort(() => Math.random() - 0.5);
+  // Shuffle using Fisher-Yates
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
+
+  return cards;
+}
+
+export interface RoundStats {
+  correctCount: number;
+  wrongCount: number;
+  pronounStats: Record<PronounKey, { correct: number; total: number }>;
+  pairStats: Record<string, { correct: number; wrong: number }>;
+}
+
+export function createEmptyStats(): RoundStats {
+  const pronounStats = {} as Record<PronounKey, { correct: number; total: number }>;
+  for (const key of PRONOUN_KEYS) {
+    pronounStats[key] = { correct: 0, total: 0 };
+  }
+  return {
+    correctCount: 0,
+    wrongCount: 0,
+    pronounStats,
+    pairStats: {},
+  };
+}
+
+export function recordAnswer(
+  stats: RoundStats,
+  verb: string,
+  pronoun: PronounKey,
+  isCorrect: boolean,
+): RoundStats {
+  const pairKey = `${verb}|${pronoun}`;
+  const prevPair = stats.pairStats[pairKey] ?? { correct: 0, wrong: 0 };
+  const prevPronoun = stats.pronounStats[pronoun];
+
+  return {
+    correctCount: stats.correctCount + (isCorrect ? 1 : 0),
+    wrongCount: stats.wrongCount + (isCorrect ? 0 : 1),
+    pronounStats: {
+      ...stats.pronounStats,
+      [pronoun]: {
+        correct: prevPronoun.correct + (isCorrect ? 1 : 0),
+        total: prevPronoun.total + 1,
+      },
+    },
+    pairStats: {
+      ...stats.pairStats,
+      [pairKey]: {
+        correct: prevPair.correct + (isCorrect ? 1 : 0),
+        wrong: prevPair.wrong + (isCorrect ? 0 : 1),
+      },
+    },
+  };
+}
+
+export function getFocusList(
+  pairStats: Record<string, { correct: number; wrong: number }>,
+  limit = 10,
+): Array<{ verb: string; pronoun: string; wrong: number }> {
+  return Object.entries(pairStats)
+    .filter(([, s]) => s.wrong > 0)
+    .sort((a, b) => b[1].wrong - a[1].wrong)
+    .slice(0, limit)
+    .map(([key, s]) => {
+      const [verb, pronoun] = key.split('|');
+      return { verb, pronoun, wrong: s.wrong };
+    });
 }
