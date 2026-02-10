@@ -179,25 +179,6 @@ export default function Home() {
               Start Round {round}
             </button>
           </div>
-
-          {/* Cheat Sheet Toggle */}
-          <button
-            onClick={() => setShowCheat((s) => !s)}
-            className="mx-auto flex items-center gap-1.5 text-sm font-medium text-brand-600 transition hover:text-brand-800"
-          >
-            <span>{showCheat ? 'Hide' : 'Show'} Conjugation Cheat Sheet</span>
-            <svg
-              className={`h-4 w-4 transition-transform ${showCheat ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {showCheat && <CheatSheet includeVosotros={includeVosotros} />}
         </section>
       )}
 
@@ -423,6 +404,30 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      {/* ─── CHEAT SHEET (available on all screens) ─────── */}
+      <div className="mt-6">
+        <button
+          onClick={() => setShowCheat((s) => !s)}
+          className="mx-auto flex items-center gap-1.5 text-sm font-medium text-brand-600 transition hover:text-brand-800"
+        >
+          <span>{showCheat ? 'Hide' : 'Show'} Conjugation Cheat Sheet</span>
+          <svg
+            className={`h-4 w-4 transition-transform ${showCheat ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {showCheat && (
+          <div className="mt-3">
+            <CheatSheet includeVosotros={includeVosotros} />
+          </div>
+        )}
+      </div>
     </main>
   );
 }
