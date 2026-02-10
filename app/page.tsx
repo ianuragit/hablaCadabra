@@ -16,6 +16,8 @@ import {
 
 type Stage = 'setup' | 'round' | 'results';
 
+const HINT_CARD_COUNT = 3; // Show instructional hints on the first N cards
+
 export default function Home() {
   // ── Session state ──────────────────────────────────────────
   const [stage, setStage] = useState<Stage>('setup');
@@ -27,7 +29,7 @@ export default function Home() {
   const [cards, setCards] = useState<FlashcardItem[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [flipClass, setFlipClass] = useState('');
+  const [flipping, setFlipping] = useState(false);
   const [startedAt, setStartedAt] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [stats, setStats] = useState<RoundStats>(createEmptyStats());
@@ -37,6 +39,7 @@ export default function Home() {
 
   const shareRef = useRef<HTMLDivElement>(null);
   const currentCard = cards[cardIndex] ?? null;
+  const showHint = cardIndex < HINT_CARD_COUNT;
 
   // ── Timer ──────────────────────────────────────────────────
   useEffect(() => {
@@ -52,7 +55,7 @@ export default function Home() {
     setCards(newCards);
     setCardIndex(0);
     setRevealed(false);
-    setFlipClass('');
+    setFlipping(false);
     setStartedAt(Date.now());
     setElapsed(0);
     setStats(createEmptyStats());
@@ -60,10 +63,14 @@ export default function Home() {
   }, [round, includeVosotros]);
 
   const handleReveal = useCallback(() => {
-    if (revealed) return;
-    setFlipClass('flipped');
-    setTimeout(() => setRevealed(true), 250);
-  }, [revealed]);
+    if (revealed || flipping) return;
+    setFlipping(true);
+    // After flip-out animation completes, show the answer
+    setTimeout(() => {
+      setRevealed(true);
+      setFlipping(false);
+    }, 200);
+  }, [revealed, flipping]);
 
   const markAnswer = useCallback(
     (isCorrect: boolean) => {
@@ -78,7 +85,7 @@ export default function Home() {
       }
       setCardIndex((i) => i + 1);
       setRevealed(false);
-      setFlipClass('');
+      setFlipping(false);
     },
     [currentCard, revealed, cardIndex, cards.length],
   );
@@ -199,63 +206,67 @@ export default function Home() {
             />
           </div>
 
-          {/* Flashcard */}
-          <div className="flip-container">
+          {/* Flashcard — Question side */}
+          {!revealed && (
             <div
-              className={`flip-card cursor-pointer ${flipClass}`}
-              onClick={() => !revealed && handleReveal()}
+              className={`cursor-pointer rounded-2xl bg-white p-6 shadow-md ring-1 ring-slate-100 transition-transform sm:p-8 ${flipping ? 'card-flip-out' : ''}`}
+              onClick={handleReveal}
               role="button"
               tabIndex={0}
-              aria-label={revealed ? 'Answer revealed' : 'Click to reveal answer'}
+              aria-label="Click to reveal answer"
             >
-              {/* Front */}
-              <div className={`flip-face rounded-2xl bg-white p-6 shadow-md ring-1 ring-slate-100 sm:p-8 ${revealed ? 'hidden' : ''}`}>
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold uppercase text-brand-600">
-                    {currentCard.verb.type === 'ar' ? '-AR' : currentCard.verb.type === 'er' ? '-ER' : '-IR'}
-                  </span>
-                  <span className="text-xs text-slate-400">Present tense</span>
-                </div>
-                <p className="mt-3 text-3xl font-bold text-slate-900 sm:text-4xl">
-                  {currentCard.verb.infinitive}
-                </p>
-                <p className="mt-1 text-base text-slate-500">{currentCard.verb.englishMeaning}</p>
-                <div className="mt-6 rounded-xl bg-brand-50 p-4">
-                  <p className="text-sm font-medium text-slate-600">Conjugate for</p>
-                  <p className="mt-0.5 text-2xl font-bold text-brand-700">
-                    {PRONOUN_LABELS[currentCard.pronoun]}
-                  </p>
-                </div>
-                <p className="mt-4 text-center text-xs text-slate-400">
-                  Tap card or press Space to reveal
+              <div className="mb-1 flex items-center gap-2">
+                <span className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold uppercase text-brand-600">
+                  {currentCard.verb.type === 'ar' ? '-AR' : currentCard.verb.type === 'er' ? '-ER' : '-IR'}
+                </span>
+                <span className="text-xs text-slate-400">Present tense</span>
+              </div>
+              <p className="mt-3 text-3xl font-bold text-slate-900 sm:text-4xl">
+                {currentCard.verb.infinitive}
+              </p>
+              <p className="mt-1 text-base text-slate-500">{currentCard.verb.englishMeaning}</p>
+              <div className="mt-6 rounded-xl bg-brand-50 p-4">
+                <p className="text-sm font-medium text-slate-600">Conjugate for</p>
+                <p className="mt-0.5 text-2xl font-bold text-brand-700">
+                  {PRONOUN_LABELS[currentCard.pronoun]}
                 </p>
               </div>
 
-              {/* Back */}
-              <div className={`flip-face flip-back rounded-2xl bg-white p-6 shadow-md ring-1 ring-emerald-200 sm:p-8 ${revealed ? '!relative !transform-none' : 'absolute inset-0'}`}>
-                {revealed && (
-                  <div className="animate-fade-up">
-                    <p className="text-sm font-medium text-slate-500">
-                      {currentCard.verb.infinitive} — {PRONOUN_LABELS[currentCard.pronoun]}
-                    </p>
-                    <p className="mt-2 text-4xl font-extrabold text-emerald-600 sm:text-5xl">
-                      {currentCard.verb.presentConjugation[currentCard.pronoun]}
-                    </p>
-                    <div className="mt-4 rounded-xl bg-slate-50 p-3">
-                      <p className="text-sm text-slate-700">
-                        {currentCard.verb.sampleSentence[currentCard.pronoun].es}
-                      </p>
-                      {currentCard.verb.sampleSentence[currentCard.pronoun].en && (
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {currentCard.verb.sampleSentence[currentCard.pronoun].en}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+              {/* Hint for first few cards */}
+              {showHint && (
+                <p className="hint-pulse mt-4 text-center text-sm font-medium text-brand-500">
+                  Tap this card to reveal the answer
+                </p>
+              )}
+              {!showHint && (
+                <p className="mt-4 text-center text-xs text-slate-400">
+                  Tap card or press Space to reveal
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Flashcard — Answer side */}
+          {revealed && (
+            <div className="card-flip-in rounded-2xl bg-white p-6 shadow-md ring-1 ring-emerald-200 sm:p-8">
+              <p className="text-sm font-medium text-slate-500">
+                {currentCard.verb.infinitive} — {PRONOUN_LABELS[currentCard.pronoun]}
+              </p>
+              <p className="mt-2 text-4xl font-extrabold text-emerald-600 sm:text-5xl">
+                {currentCard.verb.presentConjugation[currentCard.pronoun]}
+              </p>
+              <div className="mt-4 rounded-xl bg-slate-50 p-3">
+                <p className="text-sm text-slate-700">
+                  {currentCard.verb.sampleSentence[currentCard.pronoun].es}
+                </p>
+                {currentCard.verb.sampleSentence[currentCard.pronoun].en && (
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {currentCard.verb.sampleSentence[currentCard.pronoun].en}
+                  </p>
                 )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Right / Wrong buttons */}
           {revealed && (
@@ -275,6 +286,13 @@ export default function Home() {
                 <kbd className="rounded bg-rose-500/50 px-1.5 py-0.5 text-xs">W</kbd>
               </button>
             </div>
+          )}
+
+          {/* Hint below buttons for first few cards */}
+          {revealed && showHint && (
+            <p className="hint-pulse text-center text-sm font-medium text-brand-500">
+              Did you get it right? Tap Correct or Wrong above
+            </p>
           )}
         </section>
       )}
@@ -444,7 +462,6 @@ function CheatSheet({ includeVosotros }: { includeVosotros: boolean }) {
     { key: 'ustedes', label: 'ustedes' },
   ];
 
-  // Endings for present tense (matching rows order with/without vosotros)
   const arEndings = includeVosotros
     ? ['-o', '-as', '-a', '-amos', '-áis', '-an']
     : ['-o', '-as', '-a', '-amos', '-an'];
@@ -483,7 +500,6 @@ function CheatSheet({ includeVosotros }: { includeVosotros: boolean }) {
         </table>
       </div>
 
-      {/* Stem & irregular hints */}
       <div className="mt-4 rounded-xl bg-slate-50 p-4">
         <p className="text-sm font-semibold text-slate-700">Stem &amp; Irregular Hints</p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">

@@ -20,27 +20,23 @@
   }
 }
 
-/* Card flip animation */
-.flip-container {
-  perspective: 800px;
+/* Card flip animation — scaleX based for reliability */
+@keyframes flipOut {
+  0% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(0); opacity: 0; }
 }
 
-.flip-card {
-  transition: transform 0.5s ease-in-out;
-  transform-style: preserve-3d;
+@keyframes flipIn {
+  0% { transform: scaleX(0); opacity: 0; }
+  100% { transform: scaleX(1); opacity: 1; }
 }
 
-.flip-card.flipped {
-  transform: rotateY(180deg);
+.card-flip-out {
+  animation: flipOut 0.2s ease-in forwards;
 }
 
-.flip-face {
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-
-.flip-back {
-  transform: rotateY(180deg);
+.card-flip-in {
+  animation: flipIn 0.2s ease-out forwards;
 }
 
 /* Smooth fade-in for revealed content */
@@ -59,13 +55,12 @@
   animation: fadeUp 0.3s ease-out forwards;
 }
 
-/* Progress bar fill animation */
-@keyframes progressGrow {
-  from {
-    width: 0%;
-  }
+/* Pulsing hint for first cards */
+@keyframes hintPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-.animate-progress {
-  animation: progressGrow 0.4s ease-out;
+.hint-pulse {
+  animation: hintPulse 1.5s ease-in-out infinite;
 }
