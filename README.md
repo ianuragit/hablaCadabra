@@ -4,31 +4,24 @@ A mobile-first Spanish verb conjugation flashcard trainer for English speakers.
 
 ## Features
 
-- Session setup with user name, tense mode, and **Include vosotros** toggle.
-- 10-round session model; each round serves 50 weighted random verb cards.
-- Tenses supported: Present Indicative, Preterite, Imperfect.
-- Mixed mode hides the tense until reveal.
-- Reveal flow + self-grading (Right/Wrong) with keyboard shortcuts:
-  - `Space` / `Enter`: reveal
-  - `R`: mark right
-  - `W`: mark wrong
-- Round analytics:
-  - score, accuracy, elapsed time
-  - by-tense and by-pronoun breakdowns
-  - top 10 focus list of weakest verb/pronoun/tense items
-- Shareable branded progress card with **Download as PNG** via `html-to-image`.
-- Conjugation cheat sheet with tense tabs and stem/irregular hints.
-- Built-in dataset with **600 verbs** including explicit conjugation maps for:
-  - present
-  - preterite
-  - imperfect
+- Session setup with user name and **Include vosotros** toggle
+- 10-round session: each round serves 50 unique verbs (sorted by frequency)
+- Present tense conjugation practice with 540+ real Spanish verbs
+- Flashcard with flip animation and self-grading (Right/Wrong)
+- Keyboard shortcuts: `Space`/`Enter` to reveal, `R` for right, `W` for wrong
+- Round analytics: score, accuracy, elapsed time, per-pronoun breakdown
+- Focus list showing your top 10 weakest verb/pronoun combinations
+- Shareable branded progress card with **Download as PNG**
+- Conjugation cheat sheet with present tense endings and stem/irregular hints
+- No backend, no persistence — pure client-side state
 
 ## Tech stack
 
-- Next.js 14 (App Router)
+- Next.js 14 (App Router) with `output: 'standalone'`
 - TypeScript
 - Tailwind CSS
-- Client-side state only (no backend, no persistence)
+- `html-to-image` for PNG export
+- Client-side state only (no DB, no server storage)
 
 ## Local development
 
@@ -39,29 +32,46 @@ npm run dev
 
 Visit: `http://localhost:3000`
 
-## Production
+## Production build
 
 ```bash
 npm run build
 npm start
 ```
 
-## Deploy to Railway (Node buildpack approach)
+## Deploy to Railway
 
-1. Push this repository to GitHub/GitLab.
+### Option A: Node buildpack (simplest)
+
+1. Push this repository to GitHub.
 2. In Railway, click **New Project** → **Deploy from GitHub repo**.
-3. Select this repo.
-4. Railway auto-detects Node and uses:
-   - install: `npm install`
-   - build: `npm run build`
-   - start: `npm start`
-5. Add environment variable:
-   - `NODE_ENV=production`
-6. Deploy.
+3. Select this repo. Railway auto-detects Node.js and runs:
+   - Install: `npm install`
+   - Build: `npm run build`
+   - Start: `npm start`
+4. Set environment variable: `PORT=3000`
+5. Deploy. Railway assigns a public domain automatically.
 
-Railway will assign a public domain automatically.
+### Option B: Docker
+
+1. Push this repository to GitHub.
+2. In Railway, click **New Project** → **Deploy from GitHub repo**.
+3. Railway will detect the `Dockerfile` and build from it.
+4. Set environment variable: `PORT=3000`
+5. Deploy.
+
+## Regenerating verb data
+
+The verb dataset is pre-built in `lib/verbs.ts`. To regenerate:
+
+```bash
+node scripts/generate-verbs.mjs
+```
+
+This reads verb definitions from the generation script and outputs typed conjugation data.
 
 ## Notes
 
 - Session resets on browser refresh by design.
 - No localStorage or server-side storage is used.
+- 540+ verbs with hardcoded present tense conjugations (including irregulars, stem-changers, -zco, -go, -guir, -ger/-gir patterns).
